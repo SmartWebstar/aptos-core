@@ -11,6 +11,7 @@ use aptos_types::{
 };
 
 use aptos::common::types::RotationProofChallenge;
+use aptos_crypto::ed25519::{Ed25519PrivateKey, Ed25519PublicKey};
 use cached_packages::aptos_stdlib;
 use language_e2e_tests::account::Account;
 use move_deps::move_core_types::parser::parse_struct_tag;
@@ -19,8 +20,8 @@ use move_deps::move_core_types::parser::parse_struct_tag;
 fn rotate_auth_key_ed25519_to_ed25519() {
     let mut harness = MoveHarness::new();
     let account1 = harness.new_account_with_key_pair();
-
     let account2 = harness.new_account_with_key_pair();
+
     // assert that the payload is successfully processed (the signatures are correct)
     assert_successful_payload_key_rotation(
         0,
@@ -41,7 +42,6 @@ fn rotate_auth_key_ed25519_to_ed25519() {
 fn rotate_auth_key_ed25519_to_multi_ed25519() {
     let mut harness = MoveHarness::new();
     let account1 = harness.new_account_with_key_pair();
-
     let private_key = MultiEd25519PrivateKey::generate_for_testing();
     let public_key = MultiEd25519PublicKey::from(&private_key);
     let auth_key = AuthenticationKey::multi_ed25519(&public_key);
@@ -66,8 +66,8 @@ fn rotate_auth_key_ed25519_to_multi_ed25519() {
 fn rotate_auth_key_twice() {
     let mut harness = MoveHarness::new();
     let mut account1 = harness.new_account_with_key_pair();
-
     let account2 = harness.new_account_with_key_pair();
+
     // assert that the payload is successfully processed (the signatures are correct)
     assert_successful_payload_key_rotation(
         0,
@@ -97,6 +97,42 @@ fn rotate_auth_key_twice() {
     );
     account1.rotate_key(account3.privkey, account3.pubkey);
     verify_originating_address(&mut harness, account1.auth_key(), *account1.address());
+}
+
+#[test]
+fn rotate_auth_key_with_rotation_capability() {
+    let mut harness = MoveHarness::new();
+    let delegate_account = harness.new_account_with_key_pair();
+    let mut offerer_account = harness.new_account_with_key_pair();
+    let new_private_key = Ed25519PrivateKey::generate_for_testing();
+    let new_public_key = Ed25519PublicKey::from(&new_private_key);
+
+    let rotation_proof = RotationProofChallenge {
+        account_address: CORE_CODE_ADDRESS,
+        module_name: String::from("account"),
+        struct_name: String::from("RotationProofChallenge"),
+        sequence_number: 10,
+        originator: *offerer_account.address(),
+        current_auth_key: AccountAddress::from_bytes(&offerer_account.auth_key()).unwrap(),
+        new_public_key: new_public_key.to_bytes().to_vec(),
+    };
+
+    let rotation_msg = bcs::to_bytes(&rotation_proof).unwrap();
+
+    // sign the rotation message by the new private key
+    let signature_by_new_privkey = new_private_key.sign_arbitrary_message(&rotation_msg);
+
+    assert_success!(harness.run_transaction_payload(
+        &delegate_account,
+        aptos_stdlib::account_rotate_authentication_key_with_rotation_capability(
+            *offerer_account.address(),
+            0,
+            new_public_key.to_bytes().to_vec(),
+            signature_by_new_privkey.to_bytes().to_vec(),
+        )
+    ));
+    offerer_account.rotate_key(new_private_key, new_public_key);
+    verify_originating_address(&mut harness, offerer_account.auth_key(), *offerer_account.address());
 }
 
 pub fn assert_successful_payload_key_rotation<
