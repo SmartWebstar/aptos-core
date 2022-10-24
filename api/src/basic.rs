@@ -55,6 +55,7 @@ impl BasicApi {
         tag = "ApiTags::General"
     )]
     async fn spec(&self) -> Html<String> {
+        panic!("ljsdfjlksdafjlksdklf");
         Html(OPEN_API_HTML.to_string())
     }
 

@@ -5,9 +5,9 @@
 
 #![forbid(unsafe_code)]
 
-#[cfg(unix)]
 #[global_allocator]
-static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+static ALLOC: dhat::Alloc = dhat::Alloc;
+//static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 use aptos::{move_tool, Tool};
 use clap::Parser;
@@ -15,6 +15,10 @@ use std::process::exit;
 
 #[tokio::main]
 async fn main() {
+    let profiler = dhat::Profiler::builder()
+        .file_name("/tmp/profile.json")
+        .build();
+
     // Register hooks
     move_tool::register_package_hooks();
     // Run the corresponding tools
@@ -25,6 +29,7 @@ async fn main() {
         Ok(inner) => println!("{}", inner),
         Err(inner) => {
             println!("{}", inner);
+            drop(profiler);
             exit(1);
         }
     }

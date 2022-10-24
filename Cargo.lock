@@ -164,6 +164,7 @@ dependencies = [
  "chrono",
  "clap 3.2.17",
  "clap_complete",
+ "dhat",
  "dirs",
  "framework",
  "futures",
@@ -3254,6 +3255,21 @@ name = "deunicode"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "850878694b7933ca4c9569d30a34b55031b9b139ee1fc7b94a527c4ef960d690"
+
+[[package]]
+name = "dhat"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0684eaa19a59be283a6f99369917b679bd4d1d06604b2eb2e2f87b4bbd67668d"
+dependencies = [
+ "backtrace",
+ "lazy_static 1.4.0",
+ "parking_lot 0.12.1",
+ "rustc-hash",
+ "serde 1.0.144",
+ "serde_json",
+ "thousands",
+]
 
 [[package]]
 name = "diesel"
@@ -9238,6 +9254,12 @@ dependencies = [
  "quote 1.0.21",
  "syn 1.0.99",
 ]
+
+[[package]]
+name = "thousands"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bf63baf9f5039dadc247375c29eb13706706cfde997d0330d05aa63a77d8820"
 
 [[package]]
 name = "thread_local"

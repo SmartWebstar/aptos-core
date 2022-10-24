@@ -17,6 +17,7 @@ bcs = { git = "https://github.com/aptos-labs/bcs", rev = "2cde3e8446c460cb17b0c1
 chrono = "0.4.19"
 clap = "3.2.11"
 clap_complete = "3.2.3"
+dhat = "0.3.1"
 dirs = "4.0.0"
 futures = "0.3.21"
 hex = "0.4.3"
