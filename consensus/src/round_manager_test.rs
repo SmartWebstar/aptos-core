@@ -24,6 +24,7 @@ use crate::{
 use aptos_config::{config::ConsensusConfig, network_id::NetworkId};
 use aptos_crypto::HashValue;
 use aptos_infallible::Mutex;
+use aptos_logger::prelude::info;
 use aptos_secure_storage::Storage;
 use aptos_types::{
     epoch_state::EpochState,
@@ -51,7 +52,7 @@ use futures::{
     channel::{mpsc, oneshot},
     executor::block_on,
     stream::select,
-    Stream, StreamExt,
+    FutureExt, Stream, StreamExt,
 };
 use network::{
     peer_manager::{conn_notifs_channel, ConnectionRequestSender, PeerManagerRequestSender},
@@ -260,6 +261,21 @@ impl NodeSetup {
         )
     }
 
+    pub fn peer_id(&self) -> Author {
+        self.signer.author()
+    }
+
+    pub fn no_next(&mut self) {
+        match self.all_events.next().now_or_never() {
+            Some(msg) => panic!(
+                "Unexpected Consensus Message: {:?} on node {}",
+                msg,
+                self.peer_id()
+            ),
+            None => {}
+        }
+    }
+
     pub async fn next_proposal(&mut self) -> ProposalMsg {
         match self.all_events.next().await.unwrap() {
             Event::Message(_, msg) => match msg {
@@ -278,6 +294,10 @@ impl NodeSetup {
             },
             _ => panic!("Unexpected Network Event"),
         }
+    }
+
+    pub async fn next_block_retreival(&mut self) {
+        self.all_events.next().await.unwrap();
     }
 }
 
@@ -1147,5 +1167,115 @@ fn echo_timeout() {
                 .await
                 .unwrap();
         }
+    });
+}
+
+#[test]
+fn no_next_test() {
+    let mut runtime = consensus_runtime();
+    let mut playground = NetworkPlayground::new(runtime.handle().clone());
+    let mut nodes = NodeSetup::create_nodes(&mut playground, runtime.handle().clone(), 4);
+    runtime.spawn(playground.start());
+
+    timed_block_on(&mut runtime, async {
+        // clear the message queue
+        for node in &mut nodes {
+            node.next_proposal().await;
+        }
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        for node in nodes.iter_mut() {
+            // if node.id != 0 {
+            node.no_next();
+            // }
+        }
+        // info!(
+        //     "Node [{}]{} generating proposal",
+        //     nodes[0].id,
+        //     nodes[0].peer_id()
+        // );
+        // let _ = nodes[0].next_proposal().await;
+
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        for node in nodes.iter_mut() {
+            node.no_next();
+        }
+    });
+}
+
+#[test]
+fn block_retrieval_test() {
+    let mut runtime = consensus_runtime();
+    let mut playground = NetworkPlayground::new(runtime.handle().clone());
+    let mut nodes = NodeSetup::create_nodes(&mut playground, runtime.handle().clone(), 4);
+    runtime.spawn(playground.start());
+
+    let mut behind_node = nodes.pop().unwrap();
+    timed_block_on(&mut runtime, async {
+        for _ in 0..4 {
+            // Drop the proposal on the behind node
+            behind_node.next_proposal().await;
+
+            // Proccess proposal on other nodes
+            for node in nodes.iter_mut() {
+                let proposal_msg = node.next_proposal().await;
+                node.round_manager
+                    .process_proposal_msg(proposal_msg)
+                    .await
+                    .unwrap();
+            }
+
+            for i in 0..nodes.len() {
+                info!("waiting for vote {}", i);
+                let vote_msg = nodes[0].next_vote().await;
+                nodes[0]
+                    .round_manager
+                    .process_vote_msg(vote_msg)
+                    .await
+                    .unwrap();
+            }
+        }
+
+        // commit genesis and block 1
+        for _ in 0..2 {
+            for node in nodes.iter_mut() {
+                let _ = node.commit_cb_receiver.next().await;
+            }
+        }
+
+        info!("Processing proposals");
+        // Proccess proposal on other nodes
+        for node in nodes.iter_mut() {
+            let proposal_msg = node.next_proposal().await;
+            node.round_manager
+                .process_proposal_msg(proposal_msg)
+                .await
+                .unwrap();
+        }
+
+        info!(
+            "Processing proposals for behind node {}",
+            behind_node.peer_id()
+        );
+        let new_runtime = consensus_runtime();
+        let mut handles = Vec::new();
+        while !nodes.is_empty() {
+            let mut node = nodes.pop().unwrap();
+            handles.push(new_runtime.spawn(async move {
+                info!("Waiting for a request {}", node.peer_id());
+                let request = node.next_block_retreival().await;
+                info!("Request received: {:?}", request);
+            }));
+        }
+        let proposal_msg = behind_node.next_proposal().await;
+        behind_node
+            .round_manager
+            .process_proposal_msg(proposal_msg)
+            .await
+            .unwrap();
+
+        println!("Done here");
     });
 }

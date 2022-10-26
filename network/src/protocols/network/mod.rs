@@ -197,8 +197,11 @@ impl<TMessage> Stream for NetworkEvents<TMessage> {
 fn peer_mgr_notif_to_event<TMessage: Message>(
     notif: PeerManagerNotification,
 ) -> future::Ready<Option<Event<TMessage>>> {
+    println!("Received peer message");
     let maybe_event = match notif {
         PeerManagerNotification::RecvRpc(peer_id, rpc_req) => {
+            // never reaches here
+            println!("Received RPC! {:?}", rpc_req);
             request_to_network_event(peer_id, &rpc_req)
                 .map(|msg| Event::RpcRequest(peer_id, msg, rpc_req.protocol_id, rpc_req.res_tx))
         }

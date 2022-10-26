@@ -158,6 +158,7 @@ impl NetworkPlayground {
                     let node_consensus_tx =
                         node_consensus_txs.lock().get(dst_twin_id).unwrap().clone();
 
+                    println!("Sending RPC to {:?}, req = {:?}", dst, outbound_req);
                     let inbound_req = InboundRpcRequest {
                         protocol_id: outbound_req.protocol_id,
                         data: outbound_req.data,
@@ -170,6 +171,7 @@ impl NetworkPlayground {
                             PeerManagerNotification::RecvRpc(src_twin_id.author, inbound_req),
                         )
                         .unwrap();
+                    println!("Sent RPC to {:?}", dst_twin_id);
                 }
                 // Other PeerManagerRequest get buffered for `deliver_messages` to
                 // synchronously drain.

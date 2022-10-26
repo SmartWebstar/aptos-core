@@ -19,6 +19,7 @@ pub struct ProposalMsg {
 impl ProposalMsg {
     /// Creates a new proposal.
     pub fn new(proposal: Block, sync_info: SyncInfo) -> Self {
+        println!("Creating new proposal {:?} {:?}", proposal, sync_info);
         Self {
             proposal,
             sync_info,
