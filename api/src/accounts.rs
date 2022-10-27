@@ -12,7 +12,7 @@ use crate::ApiTags;
 use anyhow::Context as AnyhowContext;
 use aptos_api_types::{
     AccountData, Address, AptosErrorCode, AsConverter, LedgerInfo, MoveModuleBytecode,
-    MoveModuleId, MoveResource, MoveStructTag, U64,
+    MoveModuleId, MoveResource, MoveStructTag, StateKeyWrapper, U64,
 };
 use aptos_types::access_path::AccessPath;
 use aptos_types::account_config::AccountResource;
@@ -31,6 +31,7 @@ use poem_openapi::{param::Path, OpenApi};
 use std::collections::BTreeMap;
 use std::convert::TryInto;
 use std::sync::Arc;
+use storage_interface::MAX_REQUEST_LIMIT;
 
 /// API for accounts, their associated resources, and modules
 pub struct AccountsApi {
@@ -64,7 +65,13 @@ impl AccountsApi {
         fail_point_poem("endpoint_get_account")?;
         self.context
             .check_api_output_enabled("Get account", &accept_type)?;
-        let account = Account::new(self.context.clone(), address.0, ledger_version.0)?;
+        let account = Account::new(
+            self.context.clone(),
+            address.0,
+            ledger_version.0,
+            None,
+            None,
+        )?;
         account.account(&accept_type)
     }
 
@@ -90,11 +97,28 @@ impl AccountsApi {
         ///
         /// If not provided, it will be the latest version
         ledger_version: Query<Option<U64>>,
+        /// Cursor specifying where to start for pagination
+        ///
+        /// This cursor cannot be derived manually client-side. Instead, you must
+        /// call this endpoint once without this query parameter specified, and
+        /// then use the cursor returned in the X-Aptos-Cursor header in the
+        /// response.
+        start: Query<Option<StateKeyWrapper>>,
+        /// Max number of account resources to retrieve
+        ///
+        /// If not provided, defaults to default page size.
+        limit: Query<Option<u16>>,
     ) -> BasicResultWith404<Vec<MoveResource>> {
         fail_point_poem("endpoint_get_account_resources")?;
         self.context
             .check_api_output_enabled("Get account resources", &accept_type)?;
-        let account = Account::new(self.context.clone(), address.0, ledger_version.0)?;
+        let account = Account::new(
+            self.context.clone(),
+            address.0,
+            ledger_version.0,
+            start.0.map(StateKey::from),
+            limit.0,
+        )?;
         account.resources(&accept_type)
     }
 
@@ -120,11 +144,28 @@ impl AccountsApi {
         ///
         /// If not provided, it will be the latest version
         ledger_version: Query<Option<U64>>,
+        /// Cursor specifying where to start for pagination
+        ///
+        /// This cursor cannot be derived manually client-side. Instead, you must
+        /// call this endpoint once without this query parameter specified, and
+        /// then use the cursor returned in the X-Aptos-Cursor header in the
+        /// response.
+        start: Query<Option<StateKeyWrapper>>,
+        /// Max number of account modules to retrieve
+        ///
+        /// If not provided, defaults to default page size.
+        limit: Query<Option<u16>>,
     ) -> BasicResultWith404<Vec<MoveModuleBytecode>> {
         fail_point_poem("endpoint_get_account_modules")?;
         self.context
             .check_api_output_enabled("Get account modules", &accept_type)?;
-        let account = Account::new(self.context.clone(), address.0, ledger_version.0)?;
+        let account = Account::new(
+            self.context.clone(),
+            address.0,
+            ledger_version.0,
+            start.0.map(StateKey::from),
+            limit.0,
+        )?;
         account.modules(&accept_type)
     }
 }
@@ -136,6 +177,10 @@ pub struct Account {
     address: Address,
     /// Lookup ledger version
     ledger_version: u64,
+    /// todo
+    start: Option<StateKey>,
+    /// todo
+    limit: Option<u16>,
     /// Current ledger info
     pub latest_ledger_info: LedgerInfo,
 }
@@ -147,6 +192,8 @@ impl Account {
         context: Arc<Context>,
         address: Address,
         requested_ledger_version: Option<U64>,
+        start: Option<StateKey>,
+        limit: Option<u16>,
     ) -> Result<Self, BasicErrorWith404> {
         // Use the latest ledger version, or the requested associated version
         let (latest_ledger_info, requested_ledger_version) = context
@@ -158,6 +205,8 @@ impl Account {
             context,
             address,
             ledger_version: requested_ledger_version,
+            start,
+            limit,
             latest_ledger_info,
         })
     }
@@ -225,7 +274,7 @@ impl Account {
     /// * JSON: Return a JSON encoded version of [`Vec<MoveResource>`]
     /// * BCS: Return a sorted BCS encoded version of BCS encoded resources [`BTreeMap<StructTag, Vec<u8>>`]
     pub fn resources(self, accept_type: &AcceptType) -> BasicResultWith404<Vec<MoveResource>> {
-        let account_state = self.account_state()?;
+        let (account_state, cursor) = self.account_state()?;
         let resources = account_state.get_resources();
 
         match accept_type {
@@ -243,12 +292,12 @@ impl Account {
                             &self.latest_ledger_info,
                         )
                     })?;
-
                 BasicResponse::try_from_json((
                     converted_resources,
                     &self.latest_ledger_info,
                     BasicResponseStatus::Ok,
                 ))
+                .map(|v| v.with_cursor(cursor))
             }
             AcceptType::Bcs => {
                 // Put resources in a BTreeMap to ensure they're ordered the same every time
@@ -260,6 +309,7 @@ impl Account {
                     &self.latest_ledger_info,
                     BasicResponseStatus::Ok,
                 ))
+                .map(|v| v.with_cursor(cursor))
             }
         }
     }
@@ -269,7 +319,8 @@ impl Account {
     /// * JSON: Return a JSON encoded version of [`Vec<MoveModuleBytecode>`] with parsed ABIs
     /// * BCS: Return a sorted BCS encoded version of bytecode [`BTreeMap<MoveModuleId, Vec<u8>>`]
     pub fn modules(self, accept_type: &AcceptType) -> BasicResultWith404<Vec<MoveModuleBytecode>> {
-        let modules = self.account_state()?.into_modules();
+        // TODO: Use pagination params.
+        let modules = self.account_state()?.0.into_modules();
         match accept_type {
             AcceptType::Json => {
                 // Read bytecode and parse ABIs for output
@@ -311,16 +362,22 @@ impl Account {
     // Helpers for processing account state.
 
     /// Retrieves the account state
-    pub fn account_state(&self) -> Result<AccountState, BasicErrorWith404> {
-        self.context
-            .get_account_state(
-                self.address.into(),
+    pub fn account_state(&self) -> Result<(AccountState, Option<StateKey>), BasicErrorWith404> {
+        let (account_state, cursor) = self.context.get_account_state_by_pagination(
+            self.address.into(),
+            self.start.as_ref(),
+            self.ledger_version,
+            self.limit.map(|v| v as u64).unwrap_or(MAX_REQUEST_LIMIT),
+            &self.latest_ledger_info,
+        )?;
+        match (account_state, cursor) {
+            (Some(account_state), cursor) => Ok((account_state, cursor)),
+            (None, _cursor) => Err(account_not_found(
+                self.address,
                 self.ledger_version,
                 &self.latest_ledger_info,
-            )?
-            .ok_or_else(|| {
-                account_not_found(self.address, self.ledger_version, &self.latest_ledger_info)
-            })
+            )),
+        }
     }
 
     // Events specific stuff.
@@ -394,6 +451,7 @@ impl Account {
     ) -> Result<Vec<(Identifier, MoveValue)>, BasicErrorWith404> {
         let account_state = self.account_state()?;
         let (typ, data) = account_state
+            .0
             .get_resources()
             .find(|(tag, _data)| tag == struct_tag)
             .ok_or_else(|| {

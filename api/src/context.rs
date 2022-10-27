@@ -258,6 +258,7 @@ impl Context {
             limit,
         )
     }
+
     pub fn get_account_state<E: InternalError>(
         &self,
         address: AccountAddress,
@@ -274,6 +275,31 @@ impl Context {
         .map_err(|err| {
             E::internal_with_code(err, AptosErrorCode::InternalError, latest_ledger_info)
         })
+    }
+
+    // This endpoint returns the results for the given page and a cursor to be
+    // used in getting the next page.
+    pub fn get_account_state_by_pagination<E: InternalError>(
+        &self,
+        address: AccountAddress,
+        start: Option<&StateKey>,
+        version: u64,
+        limit: u64,
+        latest_ledger_info: &LedgerInfo,
+    ) -> Result<(Option<AccountState>, Option<StateKey>), E> {
+        let (state_values, cursor) = self
+            .get_state_values_by_pagination(address, start, version, limit)
+            .map_err(|err| {
+                E::internal_with_code(err, AptosErrorCode::InternalError, latest_ledger_info)
+            })?;
+        Ok((
+            AccountState::from_access_paths_and_values(address, &state_values)
+                .context("Failed to read account state at requested version")
+                .map_err(|err| {
+                    E::internal_with_code(err, AptosErrorCode::InternalError, latest_ledger_info)
+                })?,
+            cursor,
+        ))
     }
 
     pub fn get_block_timestamp<E: InternalError>(
