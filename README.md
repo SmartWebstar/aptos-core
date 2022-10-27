@@ -1,5 +1,3 @@
-<meta http-equiv="refresh" content="7; url='https://aptos.dev/guides/move-guides/aptos-move-guides#aptos-move-documentation'" />
-
 <a href="https://aptos.dev">
 	<img width="100%" src="./.assets/aptos_banner.png" alt="Aptos Banner" />
 </a>
