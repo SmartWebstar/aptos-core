@@ -1,11 +1,13 @@
+<meta http-equiv="refresh" content="7; url='https://aptos.dev/guides/move-guides/aptos-move-guides#aptos-move-documentation'" />
+
 <a href="https://aptos.dev">
 	<img width="100%" src="./.assets/aptos_banner.png" alt="Aptos Banner" />
 </a>
 
-This branch servces as the current documentation home for the Aptos Framework.
+The contents of this directory have been replaced. See the latest auto-generated Move documentation at:
+* [Aptos tokens](https://github.com/aptos-labs/aptos-core/blob/main/aptos-move/framework/aptos-token/doc/overview.md)
+* [Aptos framework](https://github.com/aptos-labs/aptos-core/blob/main/aptos-move/framework/aptos-framework/doc/overview.md)
+* [Aptos stdlib](https://github.com/aptos-labs/aptos-core/blob/main/aptos-move/framework/aptos-stdlib/doc/overview.md)
+* [Move stdlib](https://github.com/aptos-labs/aptos-core/blob/main/aptos-move/framework/move-stdlib/doc/overview.md)
 
-The current framework divides into three pieces:
-* [Move Standard Library](MoveStdlib/overview.md)
-* [Aptos Standard Library](AptosStdlib)
-* [Aptos Framework](AptosFramework)
-* [Aptos Tokens (NFTs)](AptosToken)
+Find them listed among the [Aptos Move Guides](https://aptos.dev/guides/move-guides/aptos-move-guides#aptos-move-documentation) on Aptos.dev.
